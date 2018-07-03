@@ -1,2 +1,3 @@
 # 2018_Vex
-Bryce wanted a vex repo, so here you go
+
+Nothing but net was cooler
