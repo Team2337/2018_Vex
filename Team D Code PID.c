@@ -12,9 +12,13 @@
 /* while the Robot is running																			 */
 /*  !!!!!  MUST HAVE THE USB -> CONTROLLER ADAPTER TO WORK  !!!!!  */
 /*******************************************************************/
+#pragma platform(VEX2)
 
 #pragma DebuggerWindows("DebugStream")
 
+#pragma competitionControl(Competition)
+
+#include "Vex_Competition_Includes.c"
 
 // PID using optical shaft encoder
 //
@@ -71,6 +75,12 @@ void setDriveRotation(float rotations) {
 	//Sets the setpoint on the encoder
 	pidRequestedValue = (rotations * 12.4) * 53.5;
 }
+
+/**
+* dist: 		distance in feet
+* timeout:  after time it ends if not in position
+*/
+
 
 
 /*-----------------------------------------------------------------------------*/
@@ -135,7 +145,7 @@ task pidController() {
 				pidDrive = PID_DRIVE_MIN;
 
 			// send to motor
-				//sets speed of the motor
+			//sets speed of the motor
 			motor[ PID_MOTOR_INDEX_R ] = pidDrive * PID_MOTOR_SCALE;
 			motor[ backRight] = pidDrive * PID_MOTOR_SCALE;
 			motor[ PID_MOTOR_INDEX_L ] = pidDrive * PID_MOTOR_SCALE;
@@ -155,43 +165,70 @@ task pidController() {
 	}
 }
 
+
+
+void driveToPosition(float desiredDist, int timeout, string encoderSide) {
+	int currentDist = 0;
+	setDriveDistance(desiredDist);
+
+	startTask( pidController );
+
+	while(true) {
+		if(encoderSide == "Right") {
+			currentDist = SensorValue(PID_SENSOR_INDEX_R);
+			} else if(encoderSide == "Left") {
+			currentDist = SensorValue(PID_SENSOR_INDEX_L);
+		}
+
+		// Prints the encoder values
+		writeDebugStreamLine("Right Encoder: %d", SensorValue(PID_SENSOR_INDEX_R));
+		writeDebugStreamLine("Left Encoder: %d", SensorValue(PID_SENSOR_INDEX_L));
+
+
+
+			if(currentDist == desiredDist || currentDist >= desiredDist - 40) {
+				break;
+		}
+		wait1Msec(50);
+	}
+}
+
+
+
+
+
+void pre_auton() {
+
+	bStopTasksBetweenModes = true;
+	//used for setting values before auton
+}
+
+task autonomous() {
+
+	driveToPosition(5, 5, "Right"
+	);
+
+	writeDebugStreamLine("ENDED");
+
+}
+
 /*-----------------------------------------------------------------------------*/
 /*                                                                             */
 /*  main task                                                                  */
 /*                                                                             */
 /*-----------------------------------------------------------------------------*/
 
-task main() {
+task usercontrol() {
 
-	// send the motor off somewhere
-	// 640 = 1 rotation
-	// 1 rotation = 12.4in
-
-  setDriveDistance(5);
-  //setDriveRotation(6);
-	//pidRequestedValue = 1920;
-
-	// start the PID task
-	startTask( pidController );
-
-	// use joystick to modify the requested position
 	while( true ) {
-		// maximum change for pidRequestedValue will be 127/4*20, around 640 counts per second
-		// free spinning motor is 100rmp so 1.67 rotations per second
-		// 1.67 * 360 counts is 600
-
-		//Sets the setpoint on the encoder
-	/*
-		if(vexRT[ Ch2 ]/4 > 0.1) {
-			pidRequestedValue = pidRequestedValue + (vexRT[ Ch2 ]/4);
+		motor[rightFront] = vexRT[Ch3];
+		motor[backRight] = vexRT[Ch3];
+		motor[leftFront] = vexRT[Ch2];
+		motor[backLeft] = vexRT[Ch2];
+		if (vexRT[Btn7U] == 1){
+			startTask(autonomous);
+			stopTask(usercontrol);
 		}
-		*/
-
-		// Prints the encoder values
-		writeDebugStreamLine("Right Encoder: %d", SensorValue(PID_SENSOR_INDEX_R));
-		writeDebugStreamLine("Left Encoder: %d", SensorValue(PID_SENSOR_INDEX_L));
-
-		wait1Msec(50);
 
 
 	}
