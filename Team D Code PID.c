@@ -25,6 +25,26 @@
 // Shaft encoder has 360 pulses per revolution
 //
 
+
+
+/**********************************/
+/* ------------------------------ */
+/* -----------  VOCAB  ---------- */
+/* ------------------------------ */
+/**********************************/
+
+/*
+ * PID: Preportional Integral Derivative
+ * Used to move the motors until the desired position has been reached
+ */
+
+//Setpoint: The desired ditance
+//Error: Desired distance - current distance
+//Ticks: value given off by encoders to track distance
+//Constant: Value that remains the same
+
+
+
 /*************************/
 /* ----- CONSTANTS ----- */
 /*************************/
@@ -157,8 +177,12 @@ task pidController() {
 			}
 
 			// calculate the derivative
+			pidDerivativeRight = pidErrorRight - pidLastErrorRight;
+			pidLastErrorRight  = pidErrorRight;
+
 			pidDerivativeLeft = pidErrorLeft - pidLastErrorLeft;
 			pidLastErrorLeft  = pidErrorLeft;
+
 
 			// calculate drive
 			pidDriveRight = (pid_Kp * pidErrorRight) + (pid_Ki * pidIntegralRight) + (pid_Kd * pidDerivativeRight);
