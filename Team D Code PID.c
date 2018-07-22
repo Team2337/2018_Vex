@@ -37,8 +37,8 @@
 #define PID_MOTOR_INDEX_R     rightFront
 #define PID_MOTOR_SCALE       -1
 
-#define PID_DRIVE_MAX       127
-#define PID_DRIVE_MIN     (-127)
+#define PID_DRIVE_MAX       120
+#define PID_DRIVE_MIN     (-120)
 
 #define PID_INTEGRAL_LIMIT  50
 
@@ -53,7 +53,8 @@ float  pid_Ki = 0.00;
 float  pid_Kd = 0.0;
 
 static int   pidRunning = 1;
-static float pidRequestedValue;
+static float pidRequestedValueRight;
+static float pidRequestedValueLeft;
 
 
 /********************************/
@@ -64,22 +65,21 @@ static float pidRequestedValue;
 
 //Sets the set point on the encoders by inches
 //In goes # of inches, out comes encoder value
-void setDriveDistance(float distance) {
+void setDriveDistance(float distRight, float distLeft) {
 	//Sets the setpoint on the encoder
-	pidRequestedValue = distance * 585;
+	pidRequestedValueRight = distRight * 585;
+	pidRequestedValueLeft  = distLeft  * 585;
 }
 
 //Sets the set point on the encoders by rotations
 //In goes # of rotations, out comes encoder value
-void setDriveRotation(float rotations) {
+void setDriveRotation(float rotationsRight, float rotationsLeft) {
 	//Sets the setpoint on the encoder
-	pidRequestedValue = (rotations * 12.4) * 53.5;
+	pidRequestedValueRight = (rotationsRight * 12.4) * 53.5;
+	pidRequestedValueLeft  = (rotationsLeft  * 12.4) * 53.5;
 }
 
-/**
-* dist: 		distance in feet
-* timeout:  after time it ends if not in position
-*/
+
 
 
 
@@ -90,13 +90,23 @@ void setDriveRotation(float rotations) {
 /*-----------------------------------------------------------------------------*/
 
 task pidController() {
-	float  pidSensorCurrentValue;
+	float  pidSensorCurrentValueRight;
+	float  pidSensorCurrentValueLeft;
 
-	float  pidError;
-	float  pidLastError;
-	float  pidIntegral;
-	float  pidDerivative;
-	float  pidDrive;
+	float  pidErrorRight;
+	float  pidErrorLeft;
+
+	float  pidLastErrorRight;
+	float  pidLastErrorLeft;
+
+	float  pidIntegralRight;
+	float  pidIntegralLeft;
+
+	float  pidDerivativeRight;
+	float  pidDerivativeLeft;
+
+	float  pidDriveRight;
+	float  pidDriveLeft;
 
 	// If we are using an encoder then clear it
 	if( SensorType[ PID_SENSOR_INDEX_R ] == sensorQuadEncoderOnI2CPort &&
@@ -106,77 +116,125 @@ task pidController() {
 	}
 
 	// Init the variables
-	pidLastError  = 0;
-	pidIntegral   = 0;
+	pidLastErrorRight = 0;
+	pidLastErrorLeft  = 0;
+
+	pidIntegralRight  = 0;
+	pidIntegralLeft   = 0;
 
 	while( true ) {
 		// Is PID control active ?
 		if( pidRunning ) {
 			// Read the sensor value and scale
-			pidSensorCurrentValue = SensorValue[ PID_SENSOR_INDEX_R ] * PID_SENSOR_SCALE;
-			pidSensorCurrentValue = -1 * (SensorValue[ PID_SENSOR_INDEX_L ] * PID_SENSOR_SCALE);
+			pidSensorCurrentValueRight = SensorValue[ PID_SENSOR_INDEX_R ] * PID_SENSOR_SCALE;
+			pidSensorCurrentValueLeft = -1 * (SensorValue[ PID_SENSOR_INDEX_L ] * PID_SENSOR_SCALE);
 
 			// calculate error
-			pidError = pidSensorCurrentValue - pidRequestedValue;
+			pidErrorRight = pidSensorCurrentValueRight - pidRequestedValueRight;
+			pidErrorLeft  = pidSensorCurrentValueLeft  - pidRequestedValueLeft;
 
 			// integral - if Ki is not 0
 			if( pid_Ki != 0 ) {
 				// If we are inside controlable window then integrate the error
-				if( abs(pidError) < PID_INTEGRAL_LIMIT ) {
-					pidIntegral = pidIntegral + pidError;
+				if( abs(pidErrorRight) < PID_INTEGRAL_LIMIT ) {
+					pidIntegralRight += pidErrorRight;
 					} else {
-					pidIntegral = 0;
+					pidIntegralRight = 0;
 				}
 				} else {
-				pidIntegral = 0;
+				pidIntegralRight = 0;
+			}
+
+			if( pid_Ki != 0 ) {
+				// If we are inside controlable window then integrate the error
+				if( abs(pidErrorLeft) < PID_INTEGRAL_LIMIT ) {
+					pidIntegralLeft += pidErrorLeft;
+					} else {
+					pidIntegralLeft = 0;
+				}
+				} else {
+				pidIntegralLeft = 0;
 			}
 
 			// calculate the derivative
-			pidDerivative = pidError - pidLastError;
-			pidLastError  = pidError;
+			pidDerivativeLeft = pidErrorLeft - pidLastErrorLeft;
+			pidLastErrorLeft  = pidErrorLeft;
 
 			// calculate drive
-			pidDrive = (pid_Kp * pidError) + (pid_Ki * pidIntegral) + (pid_Kd * pidDerivative);
+			pidDriveRight = (pid_Kp * pidErrorRight) + (pid_Ki * pidIntegralRight) + (pid_Kd * pidDerivativeRight);
+			pidDriveLeft = (pid_Kp * pidErrorLeft) + (pid_Ki * pidIntegralLeft) + (pid_Kd * pidDerivativeLeft);
 
 			// limit drive
-			if( pidDrive > PID_DRIVE_MAX )
-				pidDrive = PID_DRIVE_MAX;
-			if( pidDrive < PID_DRIVE_MIN )
-				pidDrive = PID_DRIVE_MIN;
+			if( pidDriveRight > PID_DRIVE_MAX )
+				pidDriveRight = PID_DRIVE_MAX;
+			if( pidDriveRight < PID_DRIVE_MIN )
+				pidDriveRight = PID_DRIVE_MIN;
+
+			if( pidDriveLeft > PID_DRIVE_MAX )
+				pidDriveLeft = PID_DRIVE_MAX;
+			if( pidDriveLeft < PID_DRIVE_MIN )
+				pidDriveLeft = PID_DRIVE_MIN;
+
 
 			// send to motor
 			//sets speed of the motor
-			motor[ PID_MOTOR_INDEX_R ] = pidDrive * PID_MOTOR_SCALE;
-			motor[ backRight] = pidDrive * PID_MOTOR_SCALE;
-			motor[ PID_MOTOR_INDEX_L ] = pidDrive * PID_MOTOR_SCALE;
-			motor[ backLeft] = pidDrive * PID_MOTOR_SCALE;
+			motor[ PID_MOTOR_INDEX_R ] = pidDriveRight * PID_MOTOR_SCALE;
+			motor[ backRight] = pidDriveRight * PID_MOTOR_SCALE;
+
+			motor[ PID_MOTOR_INDEX_L ] = pidDriveLeft * PID_MOTOR_SCALE;
+			motor[ backLeft] = pidDriveLeft * PID_MOTOR_SCALE;
 			} else {
 			// clear all
-			pidError      = 0;
-			pidLastError  = 0;
-			pidIntegral   = 0;
-			pidDerivative = 0;
+			pidErrorRight      = 0;
+			pidLastErrorRight  = 0;
+			pidIntegralRight   = 0;
+			pidDerivativeRight = 0;
+
+			pidErrorLeft       = 0;
+			pidLastErrorLeft   = 0;
+			pidIntegralLeft    = 0;
+			pidDerivativeLeft  = 0;
+
+
 			motor[ PID_MOTOR_INDEX_R ] = 0;
 			motor[ PID_MOTOR_INDEX_L ] = 0;
 		}
 
+		writeDebugStreamLine("Right Encoder: %d", SensorValue(PID_SENSOR_INDEX_R));
+		writeDebugStreamLine("Left Encoder: %d", SensorValue(PID_SENSOR_INDEX_L));
+
+		/*
+		if(SensorValue(PID_SENSOR_INDEX_R) >= pidRequestedValueRight - 50 ||
+			SensorValue(PID_SENSOR_INDEX_R) <= pidRequestedValueRight + 50) {
+				stopTask(pidController);
+			}*/
 		// Run at 50Hz
 		wait1Msec( 25 );
 	}
 }
 
+/*******************************************/
+/*-----------------------------------------*/
+/*--------  AUTON COMMAND METHODS  --------*/
+/*-----------------------------------------*/
+/*******************************************/
 
 
-void driveToPosition(float desiredDist, int timeout, string encoderSide) {
-	int currentDist = 0;
-	setDriveDistance(desiredDist);
+/**
+* desiredDistRight: distance in feet on the right side of the chassis
+* desiredDistLeft: distance in feet on the left side of the chassis
+*/
+void driveForwardToPosition(float desiredDistRight, float desiredDistLeft) {
+	//int currentDist = 0;
+	setDriveDistance(desiredDistRight, desiredDistLeft);
 
-	startTask( pidController );
+	startTask(pidController);
 
+	/*
 	while(true) {
-		if(encoderSide == "Right") {
+		if(encoderSide) {
 			currentDist = SensorValue(PID_SENSOR_INDEX_R);
-			} else if(encoderSide == "Left") {
+			} else if(!encoderSide) {
 			currentDist = SensorValue(PID_SENSOR_INDEX_L);
 		}
 
@@ -191,10 +249,20 @@ void driveToPosition(float desiredDist, int timeout, string encoderSide) {
 		}
 		wait1Msec(50);
 	}
+	*/
 }
 
 
+/**
+* angle: the angle the robot will turn to
+* dist: distance in ticks which the robot will move
+* encoderSide: the side of the chassis that is read
+*(Read left when turning right, read right when turning left)
+*/
+void driveToAngle(float angle, float dist, bool encoderSide) {
+	//Need gyro inorder to accurately judge the angle
 
+}
 
 
 void pre_auton() {
@@ -203,10 +271,14 @@ void pre_auton() {
 	//used for setting values before auton
 }
 
+
+
 task autonomous() {
 
-	driveToPosition(5, 5, "Right"
-	);
+	driveForwardToPosition(5, 5);
+	writeDebugStreamLine("COMMAND --- 1 --- FINISHED");
+	driveForwardToPosition(2, 2);
+	writeDebugStreamLine("COMMAND --- 2 --- FINISHED");
 
 	writeDebugStreamLine("ENDED");
 
