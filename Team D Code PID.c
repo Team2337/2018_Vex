@@ -72,10 +72,13 @@ float  pid_Kp = 0.5;
 float  pid_Ki = 0.00;
 float  pid_Kd = 0.0;
 
+int pidRunTimes = 0;
+
 static int   pidRunning = 1;
 static float pidRequestedValueRight;
 static float pidRequestedValueLeft;
 
+bool pidTaskEnded;
 
 /********************************/
 /* ---------------------------- */
@@ -141,6 +144,8 @@ task pidController() {
 
 	pidIntegralRight  = 0;
 	pidIntegralLeft   = 0;
+
+	pidTaskEnded = false;
 
 	while( true ) {
 		// Is PID control active ?
@@ -219,6 +224,8 @@ task pidController() {
 			pidIntegralLeft    = 0;
 			pidDerivativeLeft  = 0;
 
+			pidTaskEnded = true;
+			pidRunTimes += 1;
 
 			motor[ PID_MOTOR_INDEX_R ] = 0;
 			motor[ PID_MOTOR_INDEX_L ] = 0;
@@ -253,27 +260,6 @@ void driveForwardToPosition(float desiredDistRight, float desiredDistLeft) {
 	setDriveDistance(desiredDistRight, desiredDistLeft);
 
 	startTask(pidController);
-
-	/*
-	while(true) {
-		if(encoderSide) {
-			currentDist = SensorValue(PID_SENSOR_INDEX_R);
-			} else if(!encoderSide) {
-			currentDist = SensorValue(PID_SENSOR_INDEX_L);
-		}
-
-		// Prints the encoder values
-		writeDebugStreamLine("Right Encoder: %d", SensorValue(PID_SENSOR_INDEX_R));
-		writeDebugStreamLine("Left Encoder: %d", SensorValue(PID_SENSOR_INDEX_L));
-
-
-
-			if(currentDist == desiredDist || currentDist >= desiredDist - 40) {
-				break;
-		}
-		wait1Msec(50);
-	}
-	*/
 }
 
 
@@ -299,12 +285,18 @@ void pre_auton() {
 
 task autonomous() {
 
+while(true) {
 	driveForwardToPosition(5, 5);
+	if(pidTaskEnded && pidRunTimes == 1) {
 	writeDebugStreamLine("COMMAND --- 1 --- FINISHED");
 	driveForwardToPosition(2, 2);
+} else if(pidTaskEnded && pidRunTimes == 2) {
 	writeDebugStreamLine("COMMAND --- 2 --- FINISHED");
-
 	writeDebugStreamLine("ENDED");
+}
+
+
+}
 
 }
 
@@ -330,3 +322,46 @@ task usercontrol() {
 	}
 
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+/******************************/
+/*----------------------------*/
+/*-------- TEST CODE ---------*/
+/*----------------------------*/
+/******************************/
+
+
+/*-- used for driveForwardToPosition method --*/
+/*
+	while(true) {
+		if(encoderSide) {
+			currentDist = SensorValue(PID_SENSOR_INDEX_R);
+			} else if(!encoderSide) {
+			currentDist = SensorValue(PID_SENSOR_INDEX_L);
+		}
+
+		// Prints the encoder values
+		writeDebugStreamLine("Right Encoder: %d", SensorValue(PID_SENSOR_INDEX_R));
+		writeDebugStreamLine("Left Encoder: %d", SensorValue(PID_SENSOR_INDEX_L));
+
+
+
+			if(currentDist == desiredDist || currentDist >= desiredDist - 40) {
+				break;
+		}
+		wait1Msec(50);
+	}
+	*/
+
+	/*---------------------------------------------*/
