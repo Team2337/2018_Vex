@@ -256,7 +256,11 @@ task pidController() {
 * desiredDistLeft: distance in feet on the left side of the chassis
 */
 void driveForwardToPosition(float desiredDistRight, float desiredDistLeft) {
-	//int currentDist = 0;
+  //sets the encoders to zero
+	//may change for the future to provide more accurate headings.
+	SensorValue[ PID_SENSOR_INDEX_R ] = 0;
+	SensorValue[ PID_MOTOR_INDEX_L ] = 0;
+
 	setDriveDistance(desiredDistRight, desiredDistLeft);
 
 	startTask(pidController);
@@ -271,7 +275,7 @@ void driveForwardToPosition(float desiredDistRight, float desiredDistLeft) {
 */
 void driveToAngle(float angle, float dist, bool encoderSide) {
 	//Need gyro inorder to accurately judge the angle
-
+//But with changes made, we won't need one
 }
 
 
