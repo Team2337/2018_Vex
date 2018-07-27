@@ -73,6 +73,7 @@ float  pid_Ki = 0.00;
 float  pid_Kd = 0.0;
 
 int pidRunTimes = 0;
+int commandTimes = 0;
 
 static int   pidRunning = 1;
 static float pidRequestedValueRight;
@@ -89,6 +90,7 @@ bool pidTaskEnded;
 //Sets the set point on the encoders by inches
 //In goes # of inches, out comes encoder value
 void setDriveDistance(float distRight, float distLeft) {
+	commandTimes++;
 	//Sets the setpoint on the encoder
 	pidRequestedValueRight = distRight * 585;
 	pidRequestedValueLeft  = distLeft  * 585;
@@ -100,6 +102,13 @@ void setDriveRotation(float rotationsRight, float rotationsLeft) {
 	//Sets the setpoint on the encoder
 	pidRequestedValueRight = (rotationsRight * 12.4) * 53.5;
 	pidRequestedValueLeft  = (rotationsLeft  * 12.4) * 53.5;
+}
+
+void setRotationDegree(float distRight, float distLeft) {
+	//Sets the setpoint on the encoder
+//5,5 = 180 //Need to change later
+	pidRequestedValueRight = distRight * 585;
+	pidRequestedValueLeft  = distLeft  * -585;
 }
 
 
@@ -131,6 +140,8 @@ task pidController() {
 	float  pidDriveRight;
 	float  pidDriveLeft;
 
+	stopTask(autonomous);
+
 	// If we are using an encoder then clear it
 	if( SensorType[ PID_SENSOR_INDEX_R ] == sensorQuadEncoderOnI2CPort &&
 		SensorType[ PID_SENSOR_INDEX_L ] == sensorQuadEncoderOnI2CPort) {
@@ -149,7 +160,7 @@ task pidController() {
 
 	while( true ) {
 		// Is PID control active ?
-		if( pidRunning ) {
+		if( !(SensorValue[ PID_SENSOR_INDEX_R ] > (pidRequestedValueRight - 40)) || !(SensorValue[ PID_SENSOR_INDEX_L ] > (pidRequestedValueLeft - 40))) {
 			// Read the sensor value and scale
 			pidSensorCurrentValueRight = SensorValue[ PID_SENSOR_INDEX_R ] * PID_SENSOR_SCALE;
 			pidSensorCurrentValueLeft = -1 * (SensorValue[ PID_SENSOR_INDEX_L ] * PID_SENSOR_SCALE);
@@ -229,6 +240,9 @@ task pidController() {
 
 			motor[ PID_MOTOR_INDEX_R ] = 0;
 			motor[ PID_MOTOR_INDEX_L ] = 0;
+
+			startTask(autonomous);
+			stopTask(pidController);
 		}
 
 		writeDebugStreamLine("Right Encoder: %d", SensorValue(PID_SENSOR_INDEX_R));
@@ -256,6 +270,7 @@ task pidController() {
 * desiredDistLeft: distance in feet on the left side of the chassis
 */
 void driveForwardToPosition(float desiredDistRight, float desiredDistLeft) {
+
   //sets the encoders to zero
 	//may change for the future to provide more accurate headings.
 	SensorValue[ PID_SENSOR_INDEX_R ] = 0;
@@ -289,17 +304,14 @@ void pre_auton() {
 
 task autonomous() {
 
-while(true) {
+if (pidRunTimes == 0 && commandTimes == 0) {
 	driveForwardToPosition(5, 5);
-	if(pidTaskEnded && pidRunTimes == 1) {
+	} else if(pidTaskEnded && pidRunTimes == 1 && commandTimes == 1) {
 	writeDebugStreamLine("COMMAND --- 1 --- FINISHED");
 	driveForwardToPosition(2, 2);
-} else if(pidTaskEnded && pidRunTimes == 2) {
+} else if(pidTaskEnded && pidRunTimes == 2 && commandTimes == 2) {
 	writeDebugStreamLine("COMMAND --- 2 --- FINISHED");
 	writeDebugStreamLine("ENDED");
-}
-
-
 }
 
 }
