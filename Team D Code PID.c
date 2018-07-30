@@ -34,9 +34,9 @@
 /**********************************/
 
 /*
- * PID: Preportional Integral Derivative
- * Used to move the motors until the desired position has been reached
- */
+* PID: Preportional Integral Derivative
+* Used to move the motors until the desired position has been reached
+*/
 
 //Setpoint: The desired ditance
 //Error: Desired distance - current distance
@@ -75,7 +75,7 @@ float  pid_Kd = 0.0;
 int pidRunTimes = 0;
 int commandTimes = 0;
 
-static int   pidRunning = 1;
+//static int   pidRunning = 1;
 static float pidRequestedValueRight;
 static float pidRequestedValueLeft;
 
@@ -90,7 +90,7 @@ bool pidTaskEnded;
 //Sets the set point on the encoders by inches
 //In goes # of inches, out comes encoder value
 void setDriveDistance(float distRight, float distLeft) {
-	commandTimes++;
+	//commandTimes++;
 	//Sets the setpoint on the encoder
 	pidRequestedValueRight = distRight * 585;
 	pidRequestedValueLeft  = distLeft  * 585;
@@ -106,7 +106,7 @@ void setDriveRotation(float rotationsRight, float rotationsLeft) {
 
 void setRotationDegree(float distRight, float distLeft) {
 	//Sets the setpoint on the encoder
-//5,5 = 180 //Need to change later
+	//5,5 = 180 //Need to change later
 	pidRequestedValueRight = distRight * 585;
 	pidRequestedValueLeft  = distLeft  * -585;
 }
@@ -160,10 +160,12 @@ task pidController() {
 
 	while( true ) {
 		// Is PID control active ?
-		if( !(SensorValue[ PID_SENSOR_INDEX_R ] > (pidRequestedValueRight - 40)) || !(SensorValue[ PID_SENSOR_INDEX_L ] > (pidRequestedValueLeft - 40))) {
+	//Left is negative right is positive
+		if( !(SensorValue[ PID_SENSOR_INDEX_R ] > (pidRequestedValueRight - 40))
+			|| !(SensorValue[ PID_SENSOR_INDEX_L ] < (pidRequestedValueLeft + 40))) {
 			// Read the sensor value and scale
 			pidSensorCurrentValueRight = SensorValue[ PID_SENSOR_INDEX_R ] * PID_SENSOR_SCALE;
-			pidSensorCurrentValueLeft = -1 * (SensorValue[ PID_SENSOR_INDEX_L ] * PID_SENSOR_SCALE);
+			pidSensorCurrentValueLeft = -1 * (abs(SensorValue[ PID_SENSOR_INDEX_L ] * PID_SENSOR_SCALE));
 
 			// calculate error
 			pidErrorRight = pidSensorCurrentValueRight - pidRequestedValueRight;
@@ -236,13 +238,14 @@ task pidController() {
 			pidDerivativeLeft  = 0;
 
 			pidTaskEnded = true;
-			pidRunTimes += 1;
+			pidRunTimes ++;
 
 			motor[ PID_MOTOR_INDEX_R ] = 0;
 			motor[ PID_MOTOR_INDEX_L ] = 0;
 
+			writeDebugStreamLine("COMMAND - FINISHED");
+
 			startTask(autonomous);
-			stopTask(pidController);
 		}
 
 		writeDebugStreamLine("Right Encoder: %d", SensorValue(PID_SENSOR_INDEX_R));
@@ -250,9 +253,9 @@ task pidController() {
 
 		/*
 		if(SensorValue(PID_SENSOR_INDEX_R) >= pidRequestedValueRight - 50 ||
-			SensorValue(PID_SENSOR_INDEX_R) <= pidRequestedValueRight + 50) {
-				stopTask(pidController);
-			}*/
+		SensorValue(PID_SENSOR_INDEX_R) <= pidRequestedValueRight + 50) {
+		stopTask(pidController);
+		}*/
 		// Run at 50Hz
 		wait1Msec( 25 );
 	}
@@ -271,7 +274,7 @@ task pidController() {
 */
 void driveForwardToPosition(float desiredDistRight, float desiredDistLeft) {
 
-  //sets the encoders to zero
+	//sets the encoders to zero
 	//may change for the future to provide more accurate headings.
 	SensorValue[ PID_SENSOR_INDEX_R ] = 0;
 	SensorValue[ PID_MOTOR_INDEX_L ] = 0;
@@ -284,13 +287,19 @@ void driveForwardToPosition(float desiredDistRight, float desiredDistLeft) {
 
 /**
 * angle: the angle the robot will turn to
-* dist: distance in ticks which the robot will move
 * encoderSide: the side of the chassis that is read
 *(Read left when turning right, read right when turning left)
 */
-void driveToAngle(float angle, float dist, bool encoderSide) {
-	//Need gyro inorder to accurately judge the angle
-//But with changes made, we won't need one
+void driveToAngle(float angle, bool encoderSide) {
+	SensorValue[ PID_SENSOR_INDEX_R ] = 0;
+	SensorValue[ PID_MOTOR_INDEX_L ] = 0;
+
+	if(encoderSide) {
+		setDriveDistance(angle/36, angle/-36);
+		} else {
+		setDriveDistance(angle/-36, angle/36);
+	}
+	startTask(pidController);
 }
 
 
@@ -304,15 +313,20 @@ void pre_auton() {
 
 task autonomous() {
 
-if (pidRunTimes == 0 && commandTimes == 0) {
-	driveForwardToPosition(5, 5);
-	} else if(pidTaskEnded && pidRunTimes == 1 && commandTimes == 1) {
-	writeDebugStreamLine("COMMAND --- 1 --- FINISHED");
-	driveForwardToPosition(2, 2);
-} else if(pidTaskEnded && pidRunTimes == 2 && commandTimes == 2) {
-	writeDebugStreamLine("COMMAND --- 2 --- FINISHED");
-	writeDebugStreamLine("ENDED");
-}
+	stopTask(pidController);
+	stopTask(usercontrol);
+
+	writeDebugStreamLine("AUTON - STARTED");
+
+	if (pidRunTimes == 0) {
+		driveForwardToPosition(5, 5);
+		} else if(pidTaskEnded && pidRunTimes == 1) {
+		writeDebugStreamLine("COMMAND --- 1 --- FINISHED");
+		driveToAngle(180, true);
+		} else if(pidTaskEnded && pidRunTimes == 2) {
+		writeDebugStreamLine("COMMAND --- 2 --- FINISHED");
+		writeDebugStreamLine("ENDED");
+	}
 
 }
 
@@ -360,24 +374,24 @@ task usercontrol() {
 
 /*-- used for driveForwardToPosition method --*/
 /*
-	while(true) {
-		if(encoderSide) {
-			currentDist = SensorValue(PID_SENSOR_INDEX_R);
-			} else if(!encoderSide) {
-			currentDist = SensorValue(PID_SENSOR_INDEX_L);
-		}
+while(true) {
+if(encoderSide) {
+currentDist = SensorValue(PID_SENSOR_INDEX_R);
+} else if(!encoderSide) {
+currentDist = SensorValue(PID_SENSOR_INDEX_L);
+}
 
-		// Prints the encoder values
-		writeDebugStreamLine("Right Encoder: %d", SensorValue(PID_SENSOR_INDEX_R));
-		writeDebugStreamLine("Left Encoder: %d", SensorValue(PID_SENSOR_INDEX_L));
+// Prints the encoder values
+writeDebugStreamLine("Right Encoder: %d", SensorValue(PID_SENSOR_INDEX_R));
+writeDebugStreamLine("Left Encoder: %d", SensorValue(PID_SENSOR_INDEX_L));
 
 
 
-			if(currentDist == desiredDist || currentDist >= desiredDist - 40) {
-				break;
-		}
-		wait1Msec(50);
-	}
-	*/
+if(currentDist == desiredDist || currentDist >= desiredDist - 40) {
+break;
+}
+wait1Msec(50);
+}
+*/
 
-	/*---------------------------------------------*/
+/*---------------------------------------------*/
