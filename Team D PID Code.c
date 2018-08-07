@@ -479,10 +479,11 @@ task usercontrol() {
 			motor[leftArm2] = 0;
 			motor[rightArm2] = 0;
 		}
-		if(vexRT[Btn8L] == 1) {
-			motor[claw] = -65;
+		if(vexRT[Btn8L] == 1) { //left to one side, right to the other
+			//turn the claw to a certain position, not holding
+			motor[claw] = -25;
 			} else if(vexRT[Btn8R] == 1) {
-			motor[claw] = 65;
+			motor[claw] = 25;
 			} else {
 			motor[claw] = 0;
 		}
