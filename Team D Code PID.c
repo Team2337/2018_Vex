@@ -484,3 +484,12 @@ task usercontrol() {
 /*-------- TEST CODE --------*/
 /*---------------------------*/
 /*****************************/
+
+
+
+//Ideas:
+
+//Auton command scheduler
+//Turret Mode for shooter
+//Brownout protection
+//-Current distribution
