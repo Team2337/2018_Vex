@@ -1,4 +1,5 @@
 #pragma config(I2C_Usage, I2C1, i2cSensors)
+#pragma config(Sensor, in1,    Gyro,           sensorGyro)
 #pragma config(Sensor, dgtl1,  bottomArmPos,   sensorTouch)
 #pragma config(Sensor, dgtl2,  topArmPos,      sensorTouch)
 #pragma config(Sensor, dgtl3,  autonChooser,   sensorTouch)
@@ -67,9 +68,8 @@
 #define PID_MOTOR_INDEX_R     rightFront
 #define PID_MOTOR_SCALE       -1
 
-//maximum speed the motors can drive
-#define PID_DRIVE_MAX       125
-#define PID_DRIVE_MIN     (-125)
+#define PID_DRIVE_MAX       120
+#define PID_DRIVE_MIN     (-120)
 
 #define PID_INTEGRAL_LIMIT  50
 
@@ -102,7 +102,6 @@ static float pidRequestedValueLeft;
 
 static string armPosition = "DOWN";
 
-//if true the PID has ended
 bool pidTaskEnded;
 
 /********************************/
@@ -170,7 +169,7 @@ task pidController() {
 	if( SensorType[ PID_SENSOR_INDEX_R ] == sensorQuadEncoderOnI2CPort &&
 		SensorType[ PID_SENSOR_INDEX_L ] == sensorQuadEncoderOnI2CPort) {
 		SensorValue[ PID_SENSOR_INDEX_R ] = 0;
-		SensorValue[ PID_SENSOR_INDEX_L ] = 0;
+		SensorValue[ PID_MOTOR_INDEX_L ] = 0;
 	}
 
 	// Init the variables
@@ -185,8 +184,8 @@ task pidController() {
 	while( true ) {
 		// Is PID control active ?
 		//Left is negative right is positive
-		if( !(SensorValue[ PID_SENSOR_INDEX_R ] < ((abs(pidRequestedValueRight)) - 40))
-			|| !(SensorValue[ PID_SENSOR_INDEX_L ] > ((abs(pidRequestedValueLeft)) - 40))) {
+		if( !(SensorValue[ PID_SENSOR_INDEX_R ] > ((abs(pidRequestedValueRight)) - 40))
+			|| !(SensorValue[ PID_SENSOR_INDEX_L ] < ((abs(pidRequestedValueLeft)) - 40))) {
 			// Read the sensor value and scale
 			pidSensorCurrentValueRight = -1 * (SensorValue[ PID_SENSOR_INDEX_R ] * PID_SENSOR_SCALE);
 			pidSensorCurrentValueLeft = SensorValue[ PID_SENSOR_INDEX_L ] * PID_SENSOR_SCALE;
@@ -349,9 +348,9 @@ void driveToAngle(float angle, bool encoderSide) {
 	SensorValue[ PID_MOTOR_INDEX_L ] = 0;
 
 	if(encoderSide) {
-		setDriveDistance(angle/-90, angle/90);
-		} else {
 		setDriveDistance(angle/90, angle/-90);
+		} else {
+		setDriveDistance(angle/-90, angle/90);
 	}
 	startTask(pidController);
 }
@@ -382,6 +381,8 @@ void pre_auton() {
 	//used for setting values before auton
 }
 
+
+
 task autonomous() {
 
 	stopTask(pidController);
@@ -389,10 +390,23 @@ task autonomous() {
 
 	writeDebugStreamLine("AUTON - STARTED");
 
+	motor[leftArm] = -100;
+	motor[rightArm] = -100;
+	wait1Msec(250);
+	motor[leftArm] = 100;
+	motor[rightArm] = 100;
+	wait1Msec(250);
+
 	if(autonChooser) {
 		writeDebugStreamLine("AUTON - BLUE");
 		if (pidRunTimes == 0) {
 			driveForwardToPosition(2, 2);
+			wait1Msec(2000);
+			motor[claw] = -65;
+			wait1Msec(250);
+			motor[claw] = 0;
+			wait1Msec(1);
+			driveForwardToPosition(-0.5, -0.5);
 			} else if(pidTaskEnded && pidRunTimes == 1) {
 			writeDebugStreamLine("COMMAND --- 1 --- FINISHED");
 			driveToAngle(90, true);
@@ -409,6 +423,12 @@ task autonomous() {
 		writeDebugStreamLine("AUTON - RED");
 		if (pidRunTimes == 0) {
 			driveForwardToPosition(2, 2);
+			wait1Msec(2000);
+			motor[claw] = -65;
+			wait1Msec(250);
+			motor[claw] = 0;
+			wait1Msec(1);
+			driveForwardToPosition(-0.5, -0.5);
 			} else if(pidTaskEnded && pidRunTimes == 1) {
 			writeDebugStreamLine("COMMAND --- 1 --- FINISHED");
 			driveToAngle(-90, true);
@@ -425,14 +445,6 @@ task autonomous() {
 
 }
 
-
-task turnClaw() {
-	motor[claw] = 100;
-	wait1Msec(250);
-	motor[claw] = 0;
-	stopTask(turnClaw);
-}
-
 /*-----------------------------------------------------------------------------*/
 /*                                                                             */
 /*  Teleop                                                                     */
@@ -441,7 +453,7 @@ task turnClaw() {
 
 task usercontrol() {
 
-	while(true) {
+	while( true ) {
 		motor[rightFront] = vexRT[Ch2];
 		motor[backRight] = -vexRT[Ch2];
 		motor[leftFront] = vexRT[Ch3];
@@ -468,15 +480,30 @@ task usercontrol() {
 			motor[leftArm2] = 0;
 			motor[rightArm2] = 0;
 		}
-		//when the 8R is pressed, the claw will turn 90 degrees
-		if(vexRT[Btn8R] == 1) {
-			startTask(turnClaw);
+		if(vexRT[Btn8L] == 1) { //left to one side, right to the other
+			//turn the claw to a certain position, not holding
+			motor[claw] = -25;
+			} else if(vexRT[Btn8R] == 1) {
+			motor[claw] = 25;
 			} else {
 			motor[claw] = 0;
 		}
 
 	}
 }
+
+
+
+/*****************************/
+/*---------------------------*/
+/*- ULTRA SONIC SENSOR CODE -*/
+/*---------------------------*/
+/*****************************/
+
+
+//Source for help: http://www.robotc.net/blog/2011/10/13/programming-the-vex-gyro-in-robotc/
+
+
 
 
 /*****************************/
@@ -486,10 +513,22 @@ task usercontrol() {
 /*****************************/
 
 
+/*-- used for driveForwardToPosition method --*/
+/*
+while(true) {
+if(encoderSide) {
+currentDist = SensorValue(PID_SENSOR_INDEX_R);
+} else if(!encoderSide) {
+currentDist = SensorValue(PID_SENSOR_INDEX_L);
+}
+// Prints the encoder values
+writeDebugStreamLine("Right Encoder: %d", SensorValue(PID_SENSOR_INDEX_R));
+writeDebugStreamLine("Left Encoder: %d", SensorValue(PID_SENSOR_INDEX_L));
+if(currentDist == desiredDist || currentDist >= desiredDist - 40) {
+break;
+}
+wait1Msec(50);
+}
+*/
 
-//Ideas:
-
-//Auton command scheduler
-//Turret Mode for shooter
-//Brownout protection
-//-Current distribution
+/*---------------------------------------------*/
