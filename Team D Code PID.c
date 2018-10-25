@@ -1,5 +1,5 @@
 #pragma config(I2C_Usage, I2C1, i2cSensors)
-#pragma config(Sensor, in1,    Gyro,           sensorGyro)
+#pragma config(Sensor, in1,    sensorGyro,     sensorGyro)
 #pragma config(Sensor, dgtl1,  bottomArmPos,   sensorTouch)
 #pragma config(Sensor, dgtl2,  topArmPos,      sensorTouch)
 #pragma config(Sensor, dgtl3,  autonChooser,   sensorTouch)
@@ -99,6 +99,9 @@ int commandTimes = 0;
 //static int   pidRunning = 1;
 static float pidRequestedValueRight;
 static float pidRequestedValueLeft;
+
+//Gyro values
+static float degrees = 0;
 
 static string armPosition = "DOWN";
 
@@ -375,18 +378,30 @@ void driveToPositionWithArm(float rightDist, float leftDist, string armPos) {
 	driveForwardToPosition(rightDist, leftDist);
 }
 
+task gyroControl() {
+
+//Completely clear out any previous sensor readings by setting the port to "sensorNone"
+ SensorType[in1] = 0;
+ wait1Msec(1000);
+ //Reconfigure Analog Port 1 as a Gyro sensor and allow time for ROBOTC to calibrate it
+ SensorType[in1] = sensorGyro;
+ wait1Msec(2000);
+ degrees = SensorValue(sensorGyro);
+ writeDebugStreamLine("Gyro Ticks: %d", SensorValue(sensorGyro));
+}
+
 void pre_auton() {
 
 	bStopTasksBetweenModes = true;
 	//used for setting values before auton
 }
 
-
-
 task autonomous() {
 
 	stopTask(pidController);
 	stopTask(usercontrol);
+
+	startTask(gyroControl);
 
 	writeDebugStreamLine("AUTON - STARTED");
 
@@ -494,6 +509,20 @@ task usercontrol() {
 
 
 
+
+/*****************************/
+/*---------------------------*/
+/*------ GYROSCOPE CODE -----*/
+/*---------------------------*/
+/*****************************/
+
+//Source for help: http://www.robotc.net/blog/2011/10/13/programming-the-vex-gyro-in-robotc/
+
+
+
+
+
+
 /*****************************/
 /*---------------------------*/
 /*- ULTRA SONIC SENSOR CODE -*/
@@ -501,7 +530,7 @@ task usercontrol() {
 /*****************************/
 
 
-//Source for help: http://www.robotc.net/blog/2011/10/13/programming-the-vex-gyro-in-robotc/
+
 
 
 
