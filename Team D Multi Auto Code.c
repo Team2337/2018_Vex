@@ -1,4 +1,5 @@
 #pragma config(I2C_Usage, I2C1, i2cSensors)
+#pragma config(Sensor, in1,    gyro,           sensorGyro)
 #pragma config(Sensor, dgtl1,  autonColorChooser, sensorTouch)
 #pragma config(Sensor, dgtl2,  autonTileChooser, sensorTouch)
 #pragma config(Sensor, I2C_1,  rightEncoder,   sensorQuadEncoderOnI2CPort,    , AutoAssign )
@@ -34,11 +35,11 @@
 
 
 
-/**********************************/
-/* ------------------------------ */
-/* -----------  VOCAB  ---------- */
-/* ------------------------------ */
-/**********************************/
+/****************************************/
+/* ------------------------------------ */
+/* -----------  DEFINITIONS  ---------- */
+/* ------------------------------------ */
+/****************************************/
 
 /*
 * PID: Preportional Integral Derivative
@@ -53,7 +54,9 @@
 
 
 /*************************/
+/* --------------------- */
 /* ----- CONSTANTS ----- */
+/* --------------------- */
 /*************************/
 
 //Chassis PID Encoders
@@ -62,6 +65,7 @@
 #define PID_SENSOR_SCALE      1
 
 //Chassis PID Motors
+//Are able to change depending on the motors you want to use for the PID
 #define PID_MOTOR_INDEX_L			leftFront
 #define PID_MOTOR_INDEX_R     rightFront
 #define PID_MOTOR_SCALE       -1
@@ -71,29 +75,28 @@
 
 #define PID_INTEGRAL_LIMIT  50
 
-//Arm Motors
-#define ARM_MOTOR_INDEX_R		rightArm
-#define ARM_MOTOR_INDEX_L		leftArm
-
-//Arm Encoders
-#define ARM_SENSOR_INDEX_R
-#define ARM_SENSOR_INDEX_L
-
 //Claw Motors
 #define CLAW_MOTOR_INDEX		claw
 
-/********************/
-/* -- PID VALUES -- */
-/********************/
+//Gyro Sensor
+#define GYRO_SENSOR					gyro
 
-//"K" tells us it's a constant value, and should not be changed insidee the code
+/**********************/
+/* ------------------ */
+/* --- PID VALUES --- */
+/* ------------------ */
+/**********************/
+
+//"K" tells us it's a constant value, and should not be changed inside the code
 float  pid_Kp = 0.5;
 float  pid_Ki = 0.00;
 float  pid_Kd = 0.0;
+float gyroAngle = 0;
 
 int pidRunTimes = 0;
-int commandTimes = 0;
-int ballShot = 0;
+int lastAutonTask = 0;
+//Used to ensure that the auton stops after the given number of "commands"
+int totalAutonCommands = 0;
 
 //static int   pidRunning = 1;
 static float pidRequestedValueRight;
@@ -106,19 +109,29 @@ static string armPosition = "DOWN";
 
 bool pidTaskEnded;
 
-/********************************/
-/* ---------------------------- */
-/* --- USER CONTROL METHODS --- */
-/* ---------------------------- */
-/********************************/
+/*************************/
+/* --------------------- */
+/* --- AUTON METHODS --- */
+/* --------------------- */
+/*************************/
 
 //Sets the set point on the encoders by inches
 //In goes # of inches, out comes encoder value
-void setDriveDistance(float distRight, float distLeft) {
+void setDriveDistance_Inch(float dist) {
 	//commandTimes++;
 	//Sets the setpoint on the encoder
-	pidRequestedValueRight = distRight * 585;
-	pidRequestedValueLeft  = distLeft  * 585;
+	pidRequestedValueRight = dist * 585;
+	pidRequestedValueLeft  = dist * 585;
+}
+
+/**
+* Sets the distance based off of the tiles
+* !!! Constant multiplied by needs to be tuned for each field !!!
+* dist: distance in # of tiles
+*/
+void setDriveDistance_Tile(float dist) {
+	pidRequestedValueLeft  = dist * 1;
+	pidRequestedValueRight = dist * 1;
 }
 
 //Sets the set point on the encoders by rotations
@@ -129,21 +142,54 @@ void setDriveRotation(float rotationsRight, float rotationsLeft) {
 	pidRequestedValueLeft  = (rotationsLeft  * 12.4) * 53.5;
 }
 
-void setRotationDegree(float distRight, float distLeft) {
+/**
+* Changes the desired degree into the correct amount of ENCODER ticks
+* distRight: the distance on the right wheel
+* distLeft:  the distance on the left  wheel
+*/
+void setRotationDegreeWithEncoders(float distRight, float distLeft) {
 	//Sets the setpoint on the encoder
 	//5,5 = 180 //Need to change later
 	pidRequestedValueRight = distRight * 585;
 	pidRequestedValueLeft  = distLeft  * -585;
 }
 
-
-/*********************************/
-/*-------------------------------*/
-/*--- Simple Movement Methods ---*/
-/*-------------------------------*/
-/*********************************/
+/**
+* Changes the desired degree into the correct amount of ticks
+* Can change if needed
+*/
+int setRotationDegreeGyro(float degree) {
+	return gyroAngle = degree * 10;
+}
 
 /**
+*	Turns the robot to a specific angle using the gyro
+*/
+void driveToAngle(float degree, int speed, float commandNumber) {
+	degree = setRotationDegreeGyro(degree);
+	//Used to multiply the speed by a + or - 1 to determine the direction
+	int direction = degrees / abs(degrees);
+	if(lastAutonTask < commandNumber) {
+		while(SensorValue[GYRO_SENSOR] < degrees) {
+			motor[rightFront] = -speed * direction;
+			motor[leftFront]  = speed * direction;
+			motor[backRight]  = -speed * direction;
+			motor[backLeft]   = speed * direction;
+			writeDebugStreamLine("Gyro Ticks: %d", SensorValue[GYRO_SENSOR]);
+		}
+		lastAutonTask ++;
+	}
+}
+
+
+/***********************************/
+/* ------------------------------- */
+/* --- Simple Movement Methods --- */
+/* ------------------------------- */
+/***********************************/
+
+/**
+* Drives the chassis motors forward for the given time
 * speed: 120 -> -120
 * time: milliseconds
 */
@@ -163,20 +209,11 @@ void driveForwardForTime(int speed, int time) {
 * speed: 120 -> -120
 * time: milliseconds
 */
-void turnForTime(int speed, int time, string direction) {
-	if(direction == "right") {
+void turnForTime(int speed, int time) {
 	motor[rightFront] = -speed;
 	motor[leftFront]  = speed;
 	motor[backRight]  = -speed;
 	motor[backLeft]   = speed;
-} else if(direction == "left") {
-	motor[rightFront] = speed;
-	motor[leftFront]  = -speed;
-	motor[backRight]  = speed;
-	motor[backLeft]   = -speed;
-} else {
-	writeDebugStreamLine("***ERROR***: NO DIRECTION GIVEN", direction);
-}
 	wait1Msec(time);
 	motor[rightFront] = 0;
 	motor[leftFront]  = 0;
@@ -184,12 +221,31 @@ void turnForTime(int speed, int time, string direction) {
 	motor[backLeft]   = 0;
 }
 
+/**
+* Stops all motors on the chassis
+*/
+void stopDrive() {
+	motor[rightFront] = 0;
+	motor[leftFront]  = 0;
+	motor[backRight]  = 0;
+	motor[backLeft]   = 0;
+}
 
-/*-----------------------------------------------------------------------------*/
-/*                                                                             */
-/*  pid control task                                                           */
-/*                                                                             */
-/*-----------------------------------------------------------------------------*/
+
+/*------------------------------------------------------------------------------*/
+/*                                                                              */
+/*  pid control task                                                            */
+/*																																						  */
+/*	-	This task runs a PID function that dynamically changes the speed of the   */
+/*		motors depending on how far away the desired distance is from the current */
+/*		encoder reading. 																												  */
+/*																																						  */
+/*	-	It is set up to be able to account for a left and right side encoder.     */
+/*	-	The motors and ports are defined as variables to allow for the user to 	  */
+/*		change the desired motors, meaning that this task can be used for 			  */
+/*		multiple systems at once.																								  */
+/*                                                                              */
+/*------------------------------------------------------------------------------*/
 
 task pidController() {
 	float  pidSensorCurrentValueRight;
@@ -213,10 +269,10 @@ task pidController() {
 	stopTask(autonomous);
 
 	// If we are using an encoder then clear it
-	if( SensorType[ PID_SENSOR_INDEX_R ] == sensorQuadEncoderOnI2CPort &&
+	if(SensorType[ PID_SENSOR_INDEX_R ] == sensorQuadEncoderOnI2CPort &&
 		SensorType[ PID_SENSOR_INDEX_L ] == sensorQuadEncoderOnI2CPort) {
 		SensorValue[ PID_SENSOR_INDEX_R ] = 0;
-		SensorValue[ PID_MOTOR_INDEX_L ] = 0;
+		SensorValue[ PID_MOTOR_INDEX_L ]  = 0;
 	}
 
 	// Init the variables
@@ -228,11 +284,13 @@ task pidController() {
 
 	pidTaskEnded = false;
 
-	while( true ) {
+
+	while((SensorValue(PID_SENSOR_INDEX_R) >= (pidRequestedValueRight - 50)) ||
+		(SensorValue(PID_SENSOR_INDEX_R) <= (pidRequestedValueRight + 50))) {
 		// Is PID control active ?
 		//Left is negative right is positive
 		if( !(SensorValue[ PID_SENSOR_INDEX_R ] > ((abs(pidRequestedValueRight)) - 40))
-			|| !(SensorValue[ PID_SENSOR_INDEX_L ] < ((abs(pidRequestedValueLeft)) - 40))) {
+			|| !(SensorValue[ PID_SENSOR_INDEX_R ] < ((abs(pidRequestedValueRight)) + 40))) {
 			// Read the sensor value and scale
 			pidSensorCurrentValueRight = -1 * (SensorValue[ PID_SENSOR_INDEX_R ] * PID_SENSOR_SCALE);
 			pidSensorCurrentValueLeft = SensorValue[ PID_SENSOR_INDEX_L ] * PID_SENSOR_SCALE;
@@ -314,9 +372,10 @@ task pidController() {
 			motor[ PID_MOTOR_INDEX_R ] = 0;
 			motor[ PID_MOTOR_INDEX_L ] = 0;
 
+			//Ends the task and prepares the next command
 			writeDebugStreamLine("COMMAND - FINISHED");
-
-			startTask(autonomous);
+			lastAutonTask ++;
+			stopTask(pidController);
 		}
 
 		writeDebugStreamLine("Right Encoder: %d", SensorValue(PID_SENSOR_INDEX_R));
@@ -330,116 +389,51 @@ task pidController() {
 		// Run at 50Hz
 		wait1Msec( 25 );
 	}
+
+	//Code after the while loop has been exited
+	writeDebugStreamLine("COMMAND - FINISHED");
+	lastAutonTask ++;
+	stopTask(pidController);
 }
 
-/*
-Moves the arm to the desired position
-Uses two touch sensors to tell where the arm should go
-The bottom touch sensor tells when the arm is in the down position
-The top touch sensor tells when the arm is in the up position
-When it's at the top, the motors move at 10% to hold the arm in the air
-*/
-
-task moveArm() {
-	/*	while(true) {
-	if(armPosition == "DOWN") {
-	if(!SensorValue(bottomArmPos)) {
-	motor[ARM_MOTOR_INDEX_R] = -100;
-	motor[ARM_MOTOR_INDEX_L] = -100;
-	} else {
-	motor[ARM_MOTOR_INDEX_R] = 0;
-	motor[ARM_MOTOR_INDEX_L] = 0;
-	}
-	} else if(armPosition == "UP") {
-	if(!SensorValue(topArmPos)) {
-	motor[ARM_MOTOR_INDEX_R] = 100;
-	motor[ARM_MOTOR_INDEX_L] = 100;
-	} else {
-	motor[ARM_MOTOR_INDEX_R] = 10;
-	motor[ARM_MOTOR_INDEX_L] = 10;
-	}
-	}
-	}*/
-}
 
 /*******************************************/
-/*-----------------------------------------*/
-/*--------  AUTON COMMAND METHODS  --------*/
-/*-----------------------------------------*/
+/* --------------------------------------- */
+/* -------  AUTON COMMAND METHODS  ------- */
+/* --------------------------------------- */
 /*******************************************/
 
 
 /**
-* desiredDistRight: distance in feet on the right side of the chassis
-* desiredDistLeft: distance in feet on the left side of the chassis
+* desiredDist: distance in tiles on the right side of the chassis
+* reset: true if you want to reset the encoders before moving
 */
-void driveForwardToPosition(float desiredDistRight, float desiredDistLeft) {
+void driveForwardToPosition(float desiredDist, bool reset, int commandNumber) {
+	if(lastAutonTask < commandNumber) {
+		//sets the encoders to zero
+		//may change for the future to provide more accurate headings.
+		if(reset) {
+			SensorValue[ PID_SENSOR_INDEX_R ] = 0;
+			SensorValue[ PID_MOTOR_INDEX_L ] = 0;
+		}
 
-	//sets the encoders to zero
-	//may change for the future to provide more accurate headings.
-	SensorValue[ PID_SENSOR_INDEX_R ] = 0;
-	SensorValue[ PID_MOTOR_INDEX_L ] = 0;
+		setDriveDistance_Tile(desiredDist);
+		//setDriveDistance_Inch(desiredDist);
 
-	setDriveDistance(desiredDistRight, desiredDistLeft);
-
-	startTask(pidController);
-}
-
-
-/**
-* angle: the angle the robot will turn to
-* encoderSide: the side of the chassis that is read
-*(Read left when turning right, read right when turning left)
-*/
-void driveToAngle(float angle, bool encoderSide) {
-	SensorValue[ PID_SENSOR_INDEX_R ] = 0;
-	SensorValue[ PID_MOTOR_INDEX_L ] = 0;
-
-	if(encoderSide) {
-		setDriveDistance(angle/90, angle/-90);
-		} else {
-		setDriveDistance(angle/-90, angle/90);
-	}
-	startTask(pidController);
-}
-
-//stops the chassis
-void stopDrive() {
-	motor[rightFront] = 0;
-	motor[backRight] = 0;
-	motor[leftFront] = 0;
-	motor[backLeft] = 0;
-}
-
-//set the desired position of the arm
-void setArmPosition(string position) {
-	armPosition = position;
-	startTask(moveArm);
-}
-
-/*The chassis moves to the given position while the arm moves at the same time*/
-void driveToPositionWithArm(float rightDist, float leftDist, string armPos) {
-	setArmPosition(armPos);
-	driveForwardToPosition(rightDist, leftDist);
-}
-
-task gyroControl() {
-
-	while(true) {
-		writeDebugStreamLine("Gyro Ticks: %d", SensorValue[in1]);
+		startTask(pidController);
 	}
 }
 
 
-/*********************/
-/*-------------------*/
-/*--- Auton Tasks ---*/
-/*-------------------*/
-/*********************/
+/***********************/
+/* ------------------- */
+/* --- Auton Tasks --- */
+/* ------------------- */
+/***********************/
 
 task mainAutoBlue() {
-			//Regular Auto
-/*
+	//Regular Auto
+	/*
 	motor[rightFront] = 120;
 	motor[backRight] = 120;
 	motor[leftFront] = 120;
@@ -499,14 +493,117 @@ task mainAutoRed() {
 	motor[backRight] = 0;
 	motor[leftFront] = 0;
 	motor[backLeft] = 0;
+	startTask(usercontrol);
 }
 
 task coopAutoBlue() {
+	/*
+	driveForwardForTime(120, 300);
+	wait1Msec(300);
+	motor[shooterLeft] = 120;
+	motor[shooterRight] = 120;
+	driveForwardForTime(120, 2650);
+	wait1Msec(2650);
+	motor[shooterLeft] = 0;
+	motor[shooterRight] = 0;
+	driveForwardForTime(-120, 1000);
+	wait1Msec(1000);
+	turnForTime(-120, 500);
+	wait1Msec(500);
+	driveForwardForTime(-120, 3000);
+	motor[flingerThinger] = 120;
+	wait1Msec(1000);
+	motor[flingerThinger] = 0;
+	wait1Msec(2000);
+	stopDrive();
+	*/
 
+	motor[rightFront] = 120;
+	motor[backRight] = 120;
+	motor[leftFront] = 120;
+	motor[backLeft] = 120;
+	wait1Msec(300);
+	motor[rightFront] = 0;
+	motor[backRight] = 0;
+	motor[leftFront] = 0;
+	motor[backLeft] = 0;
+	motor[shooterRight] = 120;
+	motor[shooterLeft]  = 120;
+	wait1Msec(2650);
+	motor[shooterRight] = 0;
+	motor[shooterLeft]  = 0;
+	motor[intake] = 120;
+	motor[rightFront] = 120;
+	motor[backRight] = 120;
+	motor[leftFront] = 93;
+	motor[backLeft] = 93;
+	wait1Msec(3000);
+	motor[intake] = 0;
+	motor[rightFront] = 0;
+	motor[backRight] = 0;
+	motor[leftFront] = 0;
+	motor[backLeft] = 0;
+	wait1Msec(1);
+	motor[rightFront] = -120;
+	motor[backRight] = -120;
+	motor[leftFront] = -120;
+	motor[backLeft] = -120;
+	wait1Msec(500);
+	motor[rightFront] = -120;
+	motor[backRight] = -120;
+	motor[leftFront] = 90;
+	motor[backLeft] = 90;
+	wait1Msec(675);
+	motor[rightFront] = -120;
+	motor[backRight] = -120;
+	motor[leftFront] = -120;
+	motor[backLeft] = -120;
+	wait1Msec(800);
+	motor[flingerThinger] = 120;
+	wait1Msec(500);
+	motor[flingerThinger] = 25;
+	wait1Msec(500);
+	motor[rightFront] = 0;
+	motor[backRight] = 0;
+	motor[leftFront] = 0;
+	motor[backLeft] = 0;
+	wait1Msec(1);
+	motor[rightFront] = -120;
+	motor[backRight] = -120;
+	motor[leftFront] = 90;
+	motor[backLeft] = 90;
+	wait1Msec(1250);
+	motor[rightFront] = -120;
+	motor[backRight] = -120;
+	motor[leftFront] = -120;
+	motor[backLeft] = -120;
+	wait1Msec(2000);
+	motor[rightFront] = 0;
+	motor[backRight] = 0;
+	motor[leftFront] = 0;
+	motor[backLeft] = 0;
+	startTask(usercontrol);
 }
 
 task coopAutoRed() {
-
+	driveForwardForTime(120, 300);
+	wait1Msec(300);
+	motor[shooterLeft] = 120;
+	motor[shooterRight] = 120;
+	driveForwardForTime(120, 2650);
+	wait1Msec(2650);
+	motor[shooterLeft] = 0;
+	motor[shooterRight] = 0;
+	driveForwardForTime(-120, 1000);
+	wait1Msec(1000);
+	turnForTime(120, 500);
+	wait1Msec(500);
+	driveForwardForTime(-120, 3000);
+	motor[flingerThinger] = 120;
+	wait1Msec(1000);
+	motor[flingerThinger] = 0;
+	wait1Msec(2000);
+	stopDrive();
 }
 
 void pre_auton() {
@@ -516,85 +613,17 @@ void pre_auton() {
 }
 
 task autonomous() {
-
-	//stopTask(pidController);
-	//stopTask(usercontrol);
-	//stopTask(shootBall);
-
-	/*********************/
-	/*-------------------*/
-	/*---- Blue AUTO ----*/
-	/*-------------------*/
-	/*********************/
-	/*
-	//PID auto
-	if(SensorValue(autonColorChooser) == 1) {
-	if(pidRunTimes == 0) {
-	if(ballShot == 0) {
-	motor[shooterLeft] = 120;
-	motor[shooterRight] = 120;
-	wait1Msec(3500);
-	ballShot++;
-	} else {
-	motor[shooterLeft] = 0;
-	motor[shooterRight] = 0;
+	totalAutonCommands = 7;
+	while(lastAutonTask < totalAutonCommands) {
+		driveForwardToPosition(2, true, 1);
+		driveForwardToPosition(-1, true, 2);
+		driveToAngle(45, 120, 3);
+		driveForwardToPosition(-1, true, 4);
+		driveToAngle(135, 120, 5);
+		driveForwardToPosition(-3, true, 6);
+		driveForwardToPosition(0, true, 7);
 	}
-	driveForwardToPosition(3.5, 3.5);
-	} else if(pidRunTimes == 1) {
-	writeDebugStreamLine("---COMMAND 2---");
-	driveToAngle(90, true);
-	}
-	*/
-
-
-
-
-
-	/********************/
-	/*------------------*/
-	/*---- Red AUTO ----*/
-	/*------------------*/
-	/********************/
-	/* //PID Auto
-	} else if(SensorValue(autonColorChooser) == 0) {
-	if(pidRunTimes == 0) {
-	if(ballShot == 0) {
-	motor[shooterLeft] = 120;
-	motor[shooterRight] = 120;
-	wait1Msec(3500);
-	ballShot++;
-	} else {
-	motor[shooterLeft] = 0;
-	motor[shooterRight] = 0;
-	}
-	driveForwardToPosition(3.5, 3.5);
-	} else if(pidRunTimes == 1) {
-	writeDebugStreamLine("---COMMAND 2---");
-	driveToAngle(-90, true);
-	}
-	}
-	*/
-	//Normal Auto
-	/*
-
-	*/
-
 }
-
-
-//writeDebugStreamLine("AUTON - STARTED");
-
-
-/*motor[leftArm] = -100;
-motor[rightArm] = -100;
-wait1Msec(250);
-motor[leftArm] = 100;
-motor[rightArm] = 100;
-wait1Msec(250);
-*/
-
-
-
 
 /*-----------------------------------------------------------------------------*/
 /*                                                                             */
@@ -621,18 +650,30 @@ task usercontrol() {
 		writeDebugStreamLine("Right Encoder: %d", SensorValue(PID_SENSOR_INDEX_R));
 		writeDebugStreamLine("Left Encoder: %d", SensorValue(PID_SENSOR_INDEX_L));
 
-
+		//Auton Togglers
+		//	-DISABLE At Comp
 		if (vexRT[Btn8U] == 1){
 			startTask(autonomous);
 			stopTask(usercontrol);
 		}
 
-
-		/*if(vexRT[Btn7D] == 1) {
-		//startTask(gyroControl);
-		writeDebugStreamLine("Gyro Ticks: %d", SensorValue[sensorGyro]);
+		if(vexRT[Btn8R] == 1) {
+			startTask(coopAutoBlue);
+			stopTask(usercontrol);
 		}
-		*/
+
+		if(vexRT[Btn8L] == 1) {
+			startTask(coopAutoRed);
+			stopTask(usercontrol);
+		}
+
+		if(vexRT[Btn8D] == 1) {
+			totalAutonCommands = 3;
+			while(lastAutonTask < totalAutonCommands) {
+				driveForwardToPosition(1000, true, 1);
+				driveToAngle(90, 120, 2);
+			}
+		}
 
 		if(vexRT[Btn6DXmtr2] == 1) {
 			motor[shooterRight] = 120;
@@ -652,7 +693,7 @@ task usercontrol() {
 
 		//intake code
 		//BOTH operator AND Driver control the intake
-		//Operator overrights the controls
+		//Operator overrides the controls
 
 		if(vexRT[Btn7DXmtr2] == 1) {
 			motor[intake] = -120;
@@ -675,40 +716,6 @@ task usercontrol() {
 				motor[elevator] = 0;
 			}
 		}
-
-		/*
-		if (vexRT[Btn6U] == 1){
-		motor[leftArm] = -120;
-		motor[rightArm] = -120;
-		motor[leftArm2] = -120;
-		motor[rightArm2] = -120;
-		}
-		else if (vexRT[Btn6D] == 1){
-		motor[leftArm] = 120;
-		motor[rightArm] = 120;
-		motor[leftArm2] = 120;
-		motor[rightArm2] = 120;
-		}
-		else {
-		motor[leftArm] = 0;
-		motor[rightArm] = 0;
-		motor[leftArm2] = 0;
-		motor[rightArm2] = 0;
-		}\
-		*/
-
-		/*
-		if(vexRT[Btn8L] == 1) { //left to one side, right to the other
-		//turn the claw to a certain position, not holding
-		motor[claw] = -25;
-		} else if(vexRT[Btn8R] == 1) {
-		motor[claw] = 25;
-		} else {
-		motor[claw] = 0;
-		}
-		*/
-
-
 	}
 }
 
@@ -722,22 +729,6 @@ task usercontrol() {
 /*****************************/
 
 //Source for help: http://www.robotc.net/blog/2011/10/13/programming-the-vex-gyro-in-robotc/
-
-
-
-
-
-
-/*****************************/
-/*---------------------------*/
-/*- ULTRA SONIC SENSOR CODE -*/
-/*---------------------------*/
-/*****************************/
-
-
-
-
-
 
 
 /*****************************/
@@ -764,5 +755,88 @@ break;
 wait1Msec(50);
 }
 */
+
+
+/********************/
+/* ---------------- */
+/* --- OLD CODE --- */
+/* ---------------- */
+/********************/
+
+/*
+//stopTask(pidController);
+//stopTask(usercontrol);
+//stopTask(shootBall);
+
+/*********************/
+/*-------------------*/
+/*---- Blue AUTO ----*/
+/*-------------------*/
+/*********************/
+/*
+//PID auto
+if(SensorValue(autonColorChooser) == 1) {
+if(pidRunTimes == 0) {
+if(ballShot == 0) {
+motor[shooterLeft] = 120;
+motor[shooterRight] = 120;
+wait1Msec(3500);
+ballShot++;
+} else {
+motor[shooterLeft] = 0;
+motor[shooterRight] = 0;
+}
+driveForwardToPosition(3.5, 3.5);
+} else if(pidRunTimes == 1) {
+writeDebugStreamLine("---COMMAND 2---");
+driveToAngle(90, true);
+}
+*/
+
+
+
+
+
+/********************/
+/*------------------*/
+/*---- Red AUTO ----*/
+/*------------------*/
+/********************/
+/* //PID Auto
+} else if(SensorValue(autonColorChooser) == 0) {
+if(pidRunTimes == 0) {
+if(ballShot == 0) {
+motor[shooterLeft] = 120;
+motor[shooterRight] = 120;
+wait1Msec(3500);
+ballShot++;
+} else {
+motor[shooterLeft] = 0;
+motor[shooterRight] = 0;
+}
+driveForwardToPosition(3.5, 3.5);
+} else if(pidRunTimes == 1) {
+writeDebugStreamLine("---COMMAND 2---");
+driveToAngle(-90, true);
+}
+}
+*/
+//Normal Auto
+/*
+
+*/
+
+
+//writeDebugStreamLine("AUTON - STARTED");
+
+
+/*motor[leftArm] = -100;
+motor[rightArm] = -100;
+wait1Msec(250);
+motor[leftArm] = 100;
+motor[rightArm] = 100;
+wait1Msec(250);
+*/
+
 
 /*---------------------------------------------*/
